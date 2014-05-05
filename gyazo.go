@@ -17,8 +17,7 @@ import (
 )
 
 const (
-	PictureBufferSize = 1024 * 1024 * 4  // 4MB
-	Md5BufferSize     = 1024 * 4         // 4KB
+	PictureBufferSize = 1024 * 1024 * 4 // 4MB
 )
 
 func picture(c web.C, w http.ResponseWriter, r *http.Request) {

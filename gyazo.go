@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"regexp"
+	"time"
 
 	"github.com/zenazn/goji"
 	"github.com/zenazn/goji/web"
@@ -18,40 +19,105 @@ import (
 
 const (
 	PictureBufferSize = 1024 * 1024 * 4 // 4MB
+
+	PictureNotFoundError = 0
+	InternalMysqlError   = 1
 )
 
-func Picture(c web.C, w http.ResponseWriter, r *http.Request) {
+type Picture struct {
+	Id        int
+	Hash      string
+	UserId    string
+	Body      []byte
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type PictureFetchingError struct {
+	s    string
+	code int
+}
+
+func (err *PictureFetchingError) Error() string {
+	return err.s
+}
+
+func (err *PictureFetchingError) IsPictureNotFound() bool {
+	return err.code == PictureNotFoundError
+}
+
+func (err *PictureFetchingError) IsInternalMysqlError() bool {
+	return err.code == InternalMysqlError
+}
+
+func NewPictureFetchingError(s string, code int, err error) *PictureFetchingError {
+	return &PictureFetchingError{fmt.Sprintf("%s: %s", s, err.Error()), code}
+}
+
+func PngPicture(c web.C, w http.ResponseWriter, r *http.Request) {
+	picture, err := FetchPictureByHash(c.URLParams["hash"])
+
+	if err != nil {
+		if err.IsPictureNotFound() {
+			RespondNotFound(w, err, "No picture is found")
+			return
+		} else {
+			RespondInternalServerError(w, err, "Failed to fetch Picture")
+			return
+		}
+	}
+
 	w.Header().Set("Content-Type", "image/png")
-	conn, err := GetDbConnection()
-
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	stmt, err := conn.Prepare("SELECT body FROM pictures WHERE hash = ?")
-
-	if err != nil {
-		RespondInternalServerError(w, err, "Failed on prepared statement: %s")
-		return
-	}
-
-	var body []byte
-
-	row := stmt.QueryRow(c.URLParams["hash"])
-	err = row.Scan(&body)
-
-	if err != nil {
-		RespondNotFound(w, err, "No data is found")
-		return
-	}
-
-	w.Write(body)
+	w.Write(picture.Body)
 }
 
 func PicturePage(c web.C, w http.ResponseWriter, r *http.Request) {
+	picture, err := FetchPictureByHash(c.URLParams["hash"])
+
+	if err != nil {
+		if err.IsPictureNotFound() {
+			RespondNotFound(w, err, "No picture is found")
+			return
+		} else {
+			RespondInternalServerError(w, err, "Failed to fetch Picture")
+			return
+		}
+	}
+
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, `<img src="/%s.png">`, c.URLParams["hash"])
+	fmt.Fprintf(w, `<img src="/%s.png">`, picture.Hash)
+}
+
+func FetchPictureByHash(hashToFind string) (*Picture, *PictureFetchingError) {
+	conn, err := GetDbConnection()
+	defer conn.Close()
+
+	if err != nil {
+		return nil, NewPictureFetchingError("Failed to connect to database", InternalMysqlError, err)
+	}
+
+	stmt, err := conn.Prepare("SELECT id, hash, user_id, body, created_at, updated_at FROM pictures WHERE hash = ?")
+
+	if err != nil {
+		return nil, NewPictureFetchingError("Failed on prepared statement", InternalMysqlError, err)
+	}
+
+	row := stmt.QueryRow(hashToFind)
+
+	var Id        int
+	var Hash      string
+	var UserId    string
+	var Body      []byte
+	var CreatedAt time.Time
+	var UpdatedAt time.Time
+
+	err = row.Scan(&Id, &Hash, &UserId, &Body, &CreatedAt, &UpdatedAt)
+
+	if err != nil {
+		return nil, NewPictureFetchingError("No picture is found", PictureNotFoundError, err)
+	}
+
+	return &Picture{Id, Hash, UserId, Body, CreatedAt, UpdatedAt}, nil
 }
 
 func Upload(c web.C, w http.ResponseWriter, r *http.Request) {
@@ -132,7 +198,7 @@ func GetMd5Hash(bytes []byte) (string, error) {
 }
 
 func GetDbConnection() (*sql.DB, error) {
-	return sql.Open("mysql", "root:@/golang_test")
+	return sql.Open("mysql", "root:@/golang_test?parseTime=true")
 }
 
 func RespondHttpError(w http.ResponseWriter, err error, message string, status int) {
@@ -154,7 +220,7 @@ func RespondInternalServerError(w http.ResponseWriter, err error, message string
 }
 
 func main() {
-	goji.Get(regexp.MustCompile(`^/(?P<hash>[a-z0-9]+)\.png$`), Picture)
+	goji.Get(regexp.MustCompile(`^/(?P<hash>[a-z0-9]+)\.png$`), PngPicture)
 	goji.Get(regexp.MustCompile(`^/(?P<hash>[a-z0-9]+)$`), PicturePage)
 	goji.Post("/upload.cgi", Upload)
 	goji.Serve()

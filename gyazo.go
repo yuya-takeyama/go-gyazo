@@ -76,6 +76,8 @@ func upload(c web.C, w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	RespondBadRequest(w, err, "imagedata is required")
 }
 
 func UploadPictureFile(file multipart.File) (string, error) {
@@ -128,11 +130,18 @@ func GetDbConnection() (*sql.DB, error) {
 	return sql.Open("mysql", "root:@/golang_test")
 }
 
-func RespondInternalServerError(w http.ResponseWriter, err error, message string) {
-	http.Error(w, err.Error(), http.StatusInternalServerError)
+func RespondHttpError(w http.ResponseWriter, err error, message string, status int) {
+	http.Error(w, err.Error(), status)
 	errorMessage := fmt.Sprintf("%s: %s", message, err.Error())
 	fmt.Printf("%s\n", errorMessage)
-	return
+}
+
+func RespondBadRequest(w http.ResponseWriter, err error, message string) {
+	RespondHttpError(w, err, message, http.StatusBadRequest)
+}
+
+func RespondInternalServerError(w http.ResponseWriter, err error, message string) {
+	RespondHttpError(w, err, message, http.StatusInternalServerError)
 }
 
 func main() {

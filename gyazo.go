@@ -116,15 +116,11 @@ func UploadPictureFile(file multipart.File) (string, error) {
 		return "", errors.New(fmt.Sprintf("Failed to calculate MD5: %s", err.Error()))
 	}
 
-	result, err := stmt.Exec(hash, "1234", pictureBuffer)
+	_, err = stmt.Exec(hash, "1234", pictureBuffer)
 
 	if err != nil {
 		return "", errors.New(fmt.Sprintf("Failed to execute prepared statement: %s", err.Error()))
 	}
-
-	id, _ := result.LastInsertId()
-
-	fmt.Printf("id = %d\n", id)
 
 	return hash, nil
 }

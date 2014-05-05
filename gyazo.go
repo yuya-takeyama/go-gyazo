@@ -1,6 +1,9 @@
 package main
 
 import (
+	"./picture"
+	"./picture_fetching_error"
+
 	"crypto/md5"
 	"database/sql"
 	"encoding/hex"
@@ -19,40 +22,7 @@ import (
 
 const (
 	PictureBufferSize = 1024 * 1024 * 4 // 4MB
-
-	PictureNotFoundError = 0
-	InternalMysqlError   = 1
 )
-
-type Picture struct {
-	Id        int
-	Hash      string
-	UserId    string
-	Body      []byte
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-type PictureFetchingError struct {
-	s    string
-	code int
-}
-
-func (err *PictureFetchingError) Error() string {
-	return err.s
-}
-
-func (err *PictureFetchingError) IsPictureNotFound() bool {
-	return err.code == PictureNotFoundError
-}
-
-func (err *PictureFetchingError) IsInternalMysqlError() bool {
-	return err.code == InternalMysqlError
-}
-
-func NewPictureFetchingError(s string, code int, err error) *PictureFetchingError {
-	return &PictureFetchingError{fmt.Sprintf("%s: %s", s, err.Error()), code}
-}
 
 func PngPicture(c web.C, w http.ResponseWriter, r *http.Request) {
 	picture, err := FetchPictureByHash(c.URLParams["hash"])
@@ -88,18 +58,18 @@ func PicturePage(c web.C, w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<img src="/%s.png">`, picture.Hash)
 }
 
-func FetchPictureByHash(hashToFind string) (*Picture, *PictureFetchingError) {
+func FetchPictureByHash(hashToFind string) (*picture.Picture, *picture_fetching_error.PictureFetchingError) {
 	conn, err := GetDbConnection()
 	defer conn.Close()
 
 	if err != nil {
-		return nil, NewPictureFetchingError("Failed to connect to database", InternalMysqlError, err)
+		return nil, picture_fetching_error.New("Failed to connect to database", picture_fetching_error.InternalMysqlError, err)
 	}
 
 	stmt, err := conn.Prepare("SELECT id, hash, user_id, body, created_at, updated_at FROM pictures WHERE hash = ?")
 
 	if err != nil {
-		return nil, NewPictureFetchingError("Failed on prepared statement", InternalMysqlError, err)
+		return nil, picture_fetching_error.New("Failed on prepared statement", picture_fetching_error.InternalMysqlError, err)
 	}
 
 	row := stmt.QueryRow(hashToFind)
@@ -114,10 +84,10 @@ func FetchPictureByHash(hashToFind string) (*Picture, *PictureFetchingError) {
 	err = row.Scan(&Id, &Hash, &UserId, &Body, &CreatedAt, &UpdatedAt)
 
 	if err != nil {
-		return nil, NewPictureFetchingError("No picture is found", PictureNotFoundError, err)
+		return nil, picture_fetching_error.New("No picture is found", picture_fetching_error.PictureNotFoundError, err)
 	}
 
-	return &Picture{Id, Hash, UserId, Body, CreatedAt, UpdatedAt}, nil
+	return &picture.Picture{Id, Hash, UserId, Body, CreatedAt, UpdatedAt}, nil
 }
 
 func Upload(c web.C, w http.ResponseWriter, r *http.Request) {

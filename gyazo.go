@@ -4,7 +4,9 @@ import (
 	"crypto/md5"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io/ioutil"
 	"mime/multipart"
 	"net/http"
 	"regexp"
@@ -12,6 +14,11 @@ import (
 	"github.com/zenazn/goji"
 	"github.com/zenazn/goji/web"
 	_ "github.com/go-sql-driver/mysql"
+)
+
+const (
+	PictureBufferSize = 1024 * 1024 * 4  // 4MB
+	Md5BufferSize     = 1024 * 4         // 4KB
 )
 
 func picture(c web.C, w http.ResponseWriter, r *http.Request) {
@@ -39,7 +46,7 @@ func picturePage(c web.C, w http.ResponseWriter, r *http.Request) {
 }
 
 func upload(c web.C, w http.ResponseWriter, r *http.Request) {
-	err := r.ParseMultipartForm(1024 * 100)
+	err := r.ParseMultipartForm(PictureBufferSize)
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -55,76 +62,77 @@ func upload(c web.C, w http.ResponseWriter, r *http.Request) {
 		defer file.Close()
 
 		if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+			RespondInternalServerError(w, err, "Failed to load uploaded picture")
+			return
 		}
 
-		buf := make([]byte, 1024 * 100)
-
-		n, _ := file.Read(buf)
-
-		fmt.Printf("%d\n", n)
-
-		conn, err := GetDbConnection()
+		hash, err := UploadPictureFile(file)
 
 		if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				fmt.Printf("Error on DB connection\n")
-				return
+			RespondInternalServerError(w, err, "Failed to upload picture")
+			return
+		} else {
+			fmt.Fprintf(w, "http://localhost:8000/%s", hash)
+			return
 		}
-
-		stmt, err := conn.Prepare("INSERT INTO pictures (`hash`, `user_id`, `body`, `created_at`, `updated_at`) VALUES (?, ?, ?, NOW(), NOW())")
-
-		if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				fmt.Printf("Error on prepared statement\n")
-				return
-		}
-
-		hash := GetMd5Hash(file)
-		result, err := stmt.Exec(hash, "1234", buf)
-
-		if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				fmt.Printf("Error on query execution\n")
-				fmt.Printf(err.Error() + "\n")
-				return
-		}
-
-		id, err := result.LastInsertId()
-
-		fmt.Printf("ID = %d\n", id)
-
-		fmt.Fprintf(w, "http://localhost:8000/%s", hash)
 	}
 }
 
-const (
-	md5_buf_length = 4096;
-)
+func UploadPictureFile(file multipart.File) (string, error) {
+	var pictureBuffer []byte
 
-func GetMd5Hash(file multipart.File) string {
-	file.Seek(0, 0)
-	hasher := md5.New()
-	buf := make([]byte, md5_buf_length)
+	pictureBuffer, err := ioutil.ReadAll(file)
 
-	for {
-		n, _ := file.Read(buf)
-
-		if n == 0 {
-			break
-		}
-
-		hasher.Write(buf[0:n])
+	if err != nil {
+		return "", errors.New(fmt.Sprintf("Failed to load uploaded file: %s", err.Error()))
 	}
 
-	file.Seek(0, 0)
+	conn, err := GetDbConnection()
 
-	return hex.EncodeToString(hasher.Sum(nil))
+	if err != nil {
+		return "", errors.New(fmt.Sprintf("Failed to connect to database: %s", err.Error()))
+	}
+
+	stmt, err := conn.Prepare("INSERT INTO pictures (`hash`, `user_id`, `body`, `created_at`, `updated_at`) VALUES (?, ?, ?, NOW(), NOW())")
+
+	if err != nil {
+		return "", errors.New(fmt.Sprintf("Failed on prepared statement: %s", err.Error()))
+	}
+
+	hash, err := GetMd5Hash(pictureBuffer)
+
+	if err != nil {
+		return "", errors.New(fmt.Sprintf("Failed to calculate MD5: %s", err.Error()))
+	}
+
+	result, err := stmt.Exec(hash, "1234", pictureBuffer)
+
+	if err != nil {
+		return "", errors.New(fmt.Sprintf("Failed to execute prepared statement: %s", err.Error()))
+	}
+
+	id, _ := result.LastInsertId()
+
+	fmt.Printf("id = %d\n", id)
+
+	return hash, nil
+}
+
+func GetMd5Hash(bytes []byte) (string, error) {
+	hasher := md5.New()
+	hasher.Write(bytes)
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 func GetDbConnection() (*sql.DB, error) {
 	return sql.Open("mysql", "root:@/golang_test")
+}
+
+func RespondInternalServerError(w http.ResponseWriter, err error, message string) {
+	http.Error(w, err.Error(), http.StatusInternalServerError)
+	errorMessage := fmt.Sprintf("%s: %s", message, err.Error())
+	fmt.Printf("%s\n", errorMessage)
+	return
 }
 
 func main() {

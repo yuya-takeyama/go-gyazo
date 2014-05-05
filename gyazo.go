@@ -20,7 +20,7 @@ const (
 	PictureBufferSize = 1024 * 1024 * 4 // 4MB
 )
 
-func picture(c web.C, w http.ResponseWriter, r *http.Request) {
+func Picture(c web.C, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	conn, err := GetDbConnection()
 
@@ -49,12 +49,12 @@ func picture(c web.C, w http.ResponseWriter, r *http.Request) {
 	w.Write(body)
 }
 
-func picturePage(c web.C, w http.ResponseWriter, r *http.Request) {
+func PicturePage(c web.C, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, `<img src="/%s.png">`, c.URLParams["hash"])
 }
 
-func upload(c web.C, w http.ResponseWriter, r *http.Request) {
+func Upload(c web.C, w http.ResponseWriter, r *http.Request) {
 	err := r.ParseMultipartForm(PictureBufferSize)
 
 	if err != nil {
@@ -154,8 +154,8 @@ func RespondInternalServerError(w http.ResponseWriter, err error, message string
 }
 
 func main() {
-	goji.Get(regexp.MustCompile(`^/(?P<hash>[a-z0-9]+)\.png$`), picture)
-	goji.Get(regexp.MustCompile(`^/(?P<hash>[a-z0-9]+)$`), picturePage)
-	goji.Post("/upload.cgi", upload)
+	goji.Get(regexp.MustCompile(`^/(?P<hash>[a-z0-9]+)\.png$`), Picture)
+	goji.Get(regexp.MustCompile(`^/(?P<hash>[a-z0-9]+)$`), PicturePage)
+	goji.Post("/upload.cgi", Upload)
 	goji.Serve()
 }

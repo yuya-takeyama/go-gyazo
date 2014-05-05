@@ -30,12 +30,22 @@ func picture(c web.C, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stmt, _ := conn.Prepare("SELECT body FROM pictures WHERE hash = ?")
+	stmt, err := conn.Prepare("SELECT body FROM pictures WHERE hash = ?")
+
+	if err != nil {
+		RespondInternalServerError(w, err, "Failed on prepared statement: %s")
+		return
+	}
 
 	var body []byte
 
 	row := stmt.QueryRow(c.URLParams["hash"])
-	row.Scan(&body)
+	err = row.Scan(&body)
+
+	if err != nil {
+		RespondNotFound(w, err, "No data is found")
+		return
+	}
 
 	w.Write(body)
 }
@@ -138,6 +148,10 @@ func RespondHttpError(w http.ResponseWriter, err error, message string, status i
 
 func RespondBadRequest(w http.ResponseWriter, err error, message string) {
 	RespondHttpError(w, err, message, http.StatusBadRequest)
+}
+
+func RespondNotFound(w http.ResponseWriter, err error, message string) {
+	RespondHttpError(w, err, message, http.StatusNotFound)
 }
 
 func RespondInternalServerError(w http.ResponseWriter, err error, message string) {

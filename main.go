@@ -1,8 +1,8 @@
 package main
 
 import (
-	"./picture"
-	"./picture_fetching_error"
+	"github.com/yuya-takeyama/go-gyazo/picture"
+	"github.com/yuya-takeyama/go-gyazo/picture_fetching_error"
 
 	"crypto/md5"
 	"database/sql"

@@ -24,3 +24,5 @@ _testmain.go
 
 *.exe
 *.test
+
+go-gyazo
